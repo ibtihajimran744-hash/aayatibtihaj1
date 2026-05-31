@@ -26,5 +26,10 @@ service cloud.firestore {
     match /profiles/{profileId} {
       allow read, write: if true;
     }
+
+    // Game stats collection rules
+    match /gameStats/{statId} {
+      allow read, write: if true;
+    }
   }
 }

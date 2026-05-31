@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Calculator from "./components/Calculator";
+import GamesHub from "./components/GamesHub";
 import {
   Heart,
   Settings,
@@ -19,7 +20,8 @@ import {
   Sparkles,
   ChevronLeft,
   Lock,
-  HeartHandshake
+  HeartHandshake,
+  Gamepad2
 } from "lucide-react";
 import {
   collection,
@@ -143,8 +145,8 @@ export default function App() {
     }
   });
 
-  // Client Navigation Tab: 'signals' | 'timeline' | 'gallery' | 'profile'
-  const [activeTab, setActiveTab] = useState<"signals" | "timeline" | "gallery" | "profile">("signals");
+  // Client Navigation Tab: 'signals' | 'timeline' | 'gallery' | 'profile' | 'games'
+  const [activeTab, setActiveTab ] = useState<"signals" | "timeline" | "gallery" | "profile" | "games">("signals");
 
   // UI States
   const [isSending, setIsSending] = useState(false);
@@ -590,10 +592,13 @@ export default function App() {
           {hearts.map((h) => (
             <div
               key={h.id}
-              className="absolute text-rose-300 opacity-20 animate-bounce"
+              className="absolute text-rose-300 opacity-20"
               style={{
                 left: `${h.left}%`,
                 top: `${(h.id * 8) % 90}%`,
+                animationName: "bounce",
+                animationDuration: "1s",
+                animationIterationCount: "infinite",
                 animationDelay: `${h.delay}s`,
                 transform: `scale(${h.scale})`,
               }}
@@ -734,7 +739,10 @@ export default function App() {
             style={{
               left: `${h.left}%`,
               top: `${(h.id * 8) % 95}%`,
-              animation: `pulse 2.5s infinite ease-in-out`,
+              animationName: "pulse",
+              animationDuration: "2.5s",
+              animationIterationCount: "infinite",
+              animationTimingFunction: "ease-in-out",
               animationDelay: `${h.delay}s`,
               transform: `scale(${h.scale})`,
             }}
@@ -1594,6 +1602,11 @@ export default function App() {
           </motion.div>
         )}
 
+        {/* Tab 5: Games Hub */}
+        {activeTab === "games" && (
+          <GamesHub currentUser={currentUser} />
+        )}
+
       </div>
 
       {/* Persistent Floating Chat Trigger Button */}
@@ -1740,6 +1753,17 @@ export default function App() {
             </div>
           </div>
           <span className="text-[9px] font-bold uppercase tracking-tighter">Gallery</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("games")}
+          className={`flex flex-col items-center gap-1 group relative cursor-pointer ${activeTab === "games" ? "text-pink-650" : "text-gray-400"}`}
+          id="nav-tab-games"
+        >
+          <div className={`p-2 rounded-2xl transition-all duration-300 speed-200 ${activeTab === "games" ? "bg-rose-100 text-[#d81b60] scale-105" : "text-gray-400 group-hover:scale-105"}`}>
+            <Gamepad2 size={20} fill={activeTab === "games" ? "currentColor" : "none"} />
+          </div>
+          <span className="text-[9px] font-bold uppercase tracking-tighter">Games</span>
         </button>
 
         <button
