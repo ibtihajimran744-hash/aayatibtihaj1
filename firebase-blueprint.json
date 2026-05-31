@@ -1,0 +1,170 @@
+{
+  "entities": {
+    "Signal": {
+      "title": "Signal",
+      "description": "Bilateral interactive buzzer signal trigger",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sender": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sender",
+        "text",
+        "timestamp"
+      ]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Private chat message between Aayat and Ibtihaj",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sender": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sender",
+        "text",
+        "timestamp"
+      ]
+    },
+    "GalleryItem": {
+      "title": "GalleryItem",
+      "description": "A shared Polaroid memory snapshot",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        },
+        "uploader": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "url",
+        "caption",
+        "uploader",
+        "timestamp"
+      ]
+    },
+    "EventItem": {
+      "title": "EventItem",
+      "description": "Love calendar milestone event memory",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "date",
+            "anniversary",
+            "milestone",
+            "cute",
+            "custom"
+          ]
+        },
+        "createdBy": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "date",
+        "description",
+        "category",
+        "createdBy",
+        "timestamp"
+      ]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Lover status and bio data",
+      "type": "object",
+      "properties": {
+        "avatar": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "lastActive": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "avatar",
+        "status",
+        "lastActive"
+      ]
+    }
+  },
+  "firestore": {
+    "/signals/{signalId}": {
+      "schema": "Signal",
+      "description": "Real-time signals list"
+    },
+    "/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Real-time chat messaging database"
+    },
+    "/gallery/{galleryId}": {
+      "schema": "GalleryItem",
+      "description": "Shared retro polaroid photo gallery wall"
+    },
+    "/events/{eventId}": {
+      "schema": "EventItem",
+      "description": "Love milestones events calendar"
+    },
+    "/profiles/{profileId}": {
+      "schema": "UserProfile",
+      "description": "Personal avatar status space profile details"
+    }
+  }
+}
