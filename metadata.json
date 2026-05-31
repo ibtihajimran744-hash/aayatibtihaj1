@@ -1,6 +1,10 @@
 {
   "name": "Aayat Signal",
   "description": "A romantic private messaging app for sending quick signals between Aayat and Ibti.",
-  "requestFramePermissions": [],
-  "majorCapabilities": []
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

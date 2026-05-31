@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Calculator from "./components/Calculator";
 import GamesHub from "./components/GamesHub";
+import VoiceNotePlayer from "./components/VoiceNotePlayer";
+import PolaroidCard from "./components/PolaroidCard";
 import {
   Heart,
   Settings,
@@ -21,7 +23,9 @@ import {
   ChevronLeft,
   Lock,
   HeartHandshake,
-  Gamepad2
+  Gamepad2,
+  Mic,
+  Square
 } from "lucide-react";
 import {
   collection,
@@ -48,6 +52,9 @@ interface Message {
   sender: string;
   text: string;
   timestamp: string;
+  seen?: boolean;
+  voiceUrl?: string;
+  duration?: number;
 }
 
 interface GalleryItem {
@@ -56,6 +63,7 @@ interface GalleryItem {
   caption: string;
   uploader: string;
   timestamp: string;
+  urls?: string[];
 }
 
 interface EventItem {
@@ -153,13 +161,15 @@ export default function App() {
   const [showNotification, setShowNotification] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessageInput, setChatMessageInput] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
   const [lastViewedSignalId, setLastViewedSignalId] = useState<string | null>(() => localStorage.getItem("last_viewed_signal"));
   const [incomingSignal, setIncomingSignal] = useState<Signal | null>(null);
 
   // Gallery add modal
   const [isGalleryModalOpen, setIsGalleryModalOpen] = useState(false);
   const [galleryCaption, setGalleryCaption] = useState("");
-  const [galleryBase64, setGalleryBase64] = useState<string | null>(null);
+  const [galleryBase64s, setGalleryBase64s] = useState<string[]>([]);
 
   // Calendar States
   const [calendarDate, setCalendarDate] = useState<Date>(new Date());
@@ -180,6 +190,9 @@ export default function App() {
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<any>(null);
+  const recordingIntervalRef = useRef<any>(null);
+  const isRecordingDiscardedRef = useRef<boolean>(false);
 
   // Listen to Firestore real-time collections
   useEffect(() => {
@@ -224,7 +237,10 @@ export default function App() {
             id: docSnapshot.id,
             sender: d.sender || "",
             text: d.text || "",
-            timestamp: d.timestamp || ""
+            timestamp: d.timestamp || "",
+            seen: d.seen || false,
+            voiceUrl: d.voiceUrl || "",
+            duration: d.duration || 0
           });
         });
         setState((prev) => ({ ...prev, messages: list }));
@@ -263,7 +279,8 @@ export default function App() {
             url: d.url || "",
             caption: d.caption || "",
             uploader: d.uploader || "",
-            timestamp: d.timestamp || ""
+            timestamp: d.timestamp || "",
+            urls: d.urls || []
           });
         });
         setState((prev) => ({ ...prev, gallery: list }));
@@ -322,6 +339,21 @@ export default function App() {
       }, 100);
     }
   }, [isChatOpen, state.messages]);
+
+  // Mark partner's messages as seen
+  useEffect(() => {
+    if (isChatOpen && currentUser) {
+      const partnerUser = currentUser === "Aayat" ? "Ibtihaj" : "Aayat";
+      const unseen = state.messages.filter((msg) => msg.sender === partnerUser && !msg.seen);
+      if (unseen.length > 0) {
+        unseen.forEach((msg) => {
+          setDoc(doc(db, "messages", msg.id), { seen: true }, { merge: true }).catch((err) => {
+            console.error("Could not set message seen status:", err);
+          });
+        });
+      }
+    }
+  }, [isChatOpen, state.messages, currentUser]);
 
   // Log in user locally with our bulletproof passwords
   const handleLogin = async (e: React.FormEvent) => {
@@ -411,6 +443,101 @@ export default function App() {
     }
   };
 
+  // Helper to convert audio blob to Base64
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve(reader.result as string);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  // Start voice recording session
+  const startVoiceRecording = async () => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Microphone API not available");
+      }
+      
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorderRef.current = mediaRecorder;
+      isRecordingDiscardedRef.current = false;
+
+      const chunks: Blob[] = [];
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      const startTime = Date.now();
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        
+        if (isRecordingDiscardedRef.current) {
+          return;
+        }
+
+        const elapsedSeconds = Math.round((Date.now() - startTime) / 1000) || 1;
+        const audioBlob = new Blob(chunks, { type: "audio/webm" });
+
+        try {
+          const base64Audio = await blobToBase64(audioBlob);
+          const docId = Math.random().toString(36).substr(2, 9);
+          const newMessage = {
+            sender: currentUser,
+            text: "🎙️ Voice Note",
+            timestamp: new Date().toISOString(),
+            seen: false,
+            voiceUrl: base64Audio,
+            duration: elapsedSeconds
+          };
+          await setDoc(doc(db, "messages", docId), newMessage);
+        } catch (err) {
+          console.error("Failed to upload voice note:", err);
+          setShowNotification("Could not send voice note. Please try again! 🥺");
+          setTimeout(() => setShowNotification(null), 3000);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingDuration(0);
+
+      const interval = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+      recordingIntervalRef.current = interval;
+    } catch (err) {
+      console.error("Microphone permissions denied or error:", err);
+      setShowNotification("Microphone permission restricted. Open in a new tab! 🎙️");
+      setTimeout(() => setShowNotification(null), 4000);
+    }
+  };
+
+  // Stop recording. Optional shouldDiscard to discard session without sending
+  const stopVoiceRecording = (shouldDiscard = false) => {
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+    }
+    
+    if (shouldDiscard) {
+      isRecordingDiscardedRef.current = true;
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    
+    setIsRecording(false);
+    setRecordingDuration(0);
+  };
+
   // Handle avatar click upload
   const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0] && currentUser) {
@@ -429,14 +556,24 @@ export default function App() {
     }
   };
 
+  // Promise wrapper around compressAndResizeImage helper
+  const compressFileAsync = (file: File, maxWidth = 600): Promise<string> => {
+    return new Promise((resolve) => {
+      compressAndResizeImage(file, maxWidth, (base64) => {
+        resolve(base64);
+      });
+    });
+  };
+
   // Handle gallery entry creation
   const handleAddGalleryItem = async () => {
-    if (!galleryBase64 || !currentUser) return;
+    if (galleryBase64s.length === 0 || !currentUser) return;
 
     try {
       const docId = "u_" + Math.random().toString(36).substr(2, 9);
       const newGalleryItem = {
-        url: galleryBase64,
+        url: galleryBase64s[0] || "",
+        urls: galleryBase64s,
         caption: galleryCaption || "Sweet snapshot",
         uploader: currentUser,
         timestamp: new Date().toISOString()
@@ -444,18 +581,23 @@ export default function App() {
       await setDoc(doc(db, "gallery", docId), newGalleryItem);
       setIsGalleryModalOpen(false);
       setGalleryCaption("");
-      setGalleryBase64(null);
+      setGalleryBase64s([]);
     } catch (error) {
       console.error("Photo posting error:", error);
       handleFirestoreError(error, OperationType.CREATE, "gallery");
     }
   };
 
-  const handleGalleryFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      compressAndResizeImage(e.target.files[0], 600, (base64) => {
-        setGalleryBase64(base64);
-      });
+  const handleGalleryFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const filesArray = Array.from(e.target.files) as File[];
+      try {
+        const promises = filesArray.map((file: File) => compressFileAsync(file, 605));
+        const processed = await Promise.all(promises);
+        setGalleryBase64s((prev) => [...prev, ...processed]);
+      } catch (err) {
+        console.error("Could not compress selected files", err);
+      }
     }
   };
 
@@ -1265,7 +1407,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  setGalleryBase64(null);
+                  setGalleryBase64s([]);
                   setGalleryCaption("");
                   setIsGalleryModalOpen(true);
                 }}
@@ -1289,42 +1431,11 @@ export default function App() {
             ) : (
               <div className="grid grid-cols-2 gap-4">
                 {state.gallery.map((item) => (
-                  <div
+                  <PolaroidCard
                     key={item.id}
-                    className="bg-white p-3 pb-5 rounded-sm shadow-md border border-stone-100 flex flex-col relative rotate-[-1deg] hover:rotate-0 hover:scale-[1.02] duration-200 transition-all group"
-                  >
-                    {/* Retro Polaroid Visual Pin */}
-                    <div className="absolute top-0 right-1/2 translate-x-1/2 -translate-y-2.5 w-8 h-2.5 bg-rose-200/50 skew-x-3" />
-
-                    {/* Delete Polaroid Memory Button */}
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteGalleryItem(item.id)}
-                      className="absolute top-2 right-2 z-20 p-1.5 bg-white/95 hover:bg-rose-500 hover:text-white text-stone-600 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-all duration-200 cursor-pointer border border-stone-100"
-                      title="Delete snapshot"
-                    >
-                      <Trash2 size={11} />
-                    </button>
-
-                    <div className="aspect-square rounded-sm overflow-hidden bg-rose-50 border border-stone-100 mb-3 relative">
-                      <img
-                        src={item.url}
-                        alt={item.caption}
-                        className="w-full h-full object-cover select-none"
-                      />
-                    </div>
-
-                    <p className="font-hand text-lg font-semibold text-rose-800 leading-tight block text-center truncate italic">
-                      {item.caption}
-                    </p>
-
-                    <div className="flex items-center justify-between text-[8px] text-gray-400 mt-2 font-mono border-t border-rose-50 pt-1.5">
-                      <span>By {item.uploader}</span>
-                      <span>
-                        {new Date(item.timestamp).toLocaleDateString([], { month: "short", day: "numeric" })}
-                      </span>
-                    </div>
-                  </div>
+                    item={item}
+                    onDelete={handleDeleteGalleryItem}
+                  />
                 ))}
               </div>
             )}
@@ -1357,16 +1468,45 @@ export default function App() {
 
                     <div className="space-y-4 text-left">
                       {/* Photo selector target frame */}
-                      <div className="flex flex-col items-center justify-center">
-                        {galleryBase64 ? (
-                          <div className="w-full max-h-56 rounded-2xl overflow-hidden border border-rose-100 shadow-sm relative group bg-stone-50">
-                            <img src={galleryBase64} alt="Pre-upload preview" className="w-full h-full object-contain" />
-                            <button
-                              onClick={() => setGalleryBase64(null)}
-                              className="absolute top-2.5 right-2.5 p-1 bg-black/60 hover:bg-black/80 text-white rounded-full transition-colors cursor-pointer"
-                            >
-                              <X size={14} />
-                            </button>
+                      <div className="flex flex-col gap-3">
+                        {galleryBase64s.length > 0 ? (
+                          <div className="space-y-3 w-full">
+                            {/* Large primary preview */}
+                            <div className="w-full h-48 rounded-2xl overflow-hidden border border-rose-100 shadow-sm relative bg-stone-50">
+                              <img src={galleryBase64s[0]} alt="Pre-upload primary preview" className="w-full h-full object-cover" />
+                              <div className="absolute top-2 left-2 bg-black/65 text-white text-[9px] font-bold px-2 py-0.5 rounded-full select-none font-mono">
+                                Main photo ({galleryBase64s.length} total)
+                              </div>
+                            </div>
+                            
+                            {/* Horizontal grid list */}
+                            <label className="block text-[9px] font-bold text-stone-400 uppercase tracking-widest leading-none">
+                              Selected Carousel Photos ({galleryBase64s.length})
+                            </label>
+                            <div className="w-full flex items-center gap-2 overflow-x-auto py-1 scrollbar-thin">
+                              {galleryBase64s.map((img, idx) => (
+                                <div key={idx} className="relative w-14 h-14 shrink-0 rounded-lg overflow-hidden border border-rose-50 bg-stone-50 shadow-sm">
+                                  <img src={img} className="w-full h-full object-cover" />
+                                  <button
+                                    onClick={() => setGalleryBase64s(prev => prev.filter((_, i) => i !== idx))}
+                                    type="button"
+                                    className="absolute top-0.5 right-0.5 p-0.5 bg-black/60 hover:bg-black/85 text-white rounded-full transition-colors cursor-pointer"
+                                  >
+                                    <X size={8} />
+                                  </button>
+                                </div>
+                              ))}
+                              
+                              {/* Quick add extra photos slot */}
+                              <button
+                                type="button"
+                                onClick={() => galleryInputRef.current?.click()}
+                                className="w-14 h-14 shrink-0 rounded-lg border border-dashed border-pink-200 bg-rose-50/20 hover:bg-rose-50 flex flex-col items-center justify-center text-pink-600 transition-colors cursor-pointer"
+                              >
+                                <Plus size={14} />
+                                <span className="text-[8px] font-bold">Add</span>
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <div
@@ -1374,8 +1514,8 @@ export default function App() {
                             className="w-full h-44 rounded-2xl border-2 border-dashed border-pink-200 bg-rose-50/40 flex flex-col items-center justify-center text-center p-6 hover:bg-rose-50 shrink-0 cursor-pointer duration-150"
                           >
                             <Camera size={26} className="text-pink-300 mb-2" />
-                            <p className="text-xs font-bold text-pink-600 mb-1">Upload Photo Snapshot</p>
-                            <p className="text-[10px] text-stone-400">Click to import JPEG/PNG crop</p>
+                            <p className="text-xs font-bold text-pink-600 mb-1">Upload Photo Snapshot(s)</p>
+                            <p className="text-[10px] text-stone-400">Click to select one or multiple photos</p>
                           </div>
                         )}
 
@@ -1384,6 +1524,7 @@ export default function App() {
                           ref={galleryInputRef}
                           onChange={handleGalleryFileSelect}
                           accept="image/*"
+                          multiple
                           className="hidden"
                         />
                       </div>
@@ -1404,9 +1545,9 @@ export default function App() {
 
                       <button
                         onClick={handleAddGalleryItem}
-                        disabled={!galleryBase64}
+                        disabled={galleryBase64s.length === 0}
                         className={`w-full py-3.5 rounded-xl font-bold shadow-md cursor-pointer text-xs uppercase transition-all ${
-                          galleryBase64 ? "bg-[#d81b60] hover:bg-pink-600 text-white" : "bg-stone-100 text-stone-400 cursor-not-allowed"
+                          galleryBase64s.length > 0 ? "bg-[#d81b60] hover:bg-pink-600 text-white" : "bg-stone-100 text-stone-400 cursor-not-allowed"
                         }`}
                       >
                         Pin to Shared Polaroid Wall 💖
@@ -1683,10 +1824,19 @@ export default function App() {
                           ${isMe ? "bg-[#d81b60] text-white rounded-br-none" : "bg-white text-gray-800 rounded-bl-none border border-pink-50"}
                         `}
                       >
-                        {msg.text}
+                        {msg.voiceUrl ? (
+                          <VoiceNotePlayer voiceUrl={msg.voiceUrl} duration={msg.duration} isMe={isMe} />
+                        ) : (
+                          msg.text
+                        )}
                       </div>
-                      <span className="text-[8px] text-gray-400 font-mono mt-1 px-1">
+                      <span className="text-[8px] text-gray-400 font-mono mt-1 px-1 flex items-center gap-1 leading-none select-none">
                         {new Date(msg.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                        {isMe && (
+                          <span className="text-stone-400">
+                            • {msg.seen ? <span className="text-pink-600 font-bold">Seen 💖</span> : "Sent"}
+                          </span>
+                        )}
                       </span>
                     </div>
                   );
@@ -1696,22 +1846,68 @@ export default function App() {
             </div>
 
             {/* Message input Form */}
-            <form onSubmit={handleSendChatMessage} className="p-3 border-t border-pink-100 bg-white flex gap-2">
-              <input
-                type="text"
-                placeholder="Write love message..."
-                value={chatMessageInput}
-                onChange={(e) => setChatMessageInput(e.target.value)}
-                className="flex-1 bg-stone-50 border border-stone-200 px-4 py-3 rounded-full text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-pink-300"
-                required
-              />
-              <button
-                type="submit"
-                className="w-10 h-10 bg-[#d81b60] hover:bg-pink-600 text-white rounded-full flex items-center justify-center shadow-md shrink-0 cursor-pointer"
-              >
-                <Send size={14} fill="currentColor" />
-              </button>
-            </form>
+            {isRecording ? (
+              <div className="p-3 border-t border-pink-100 bg-white flex items-center justify-between gap-2 bg-[#fffcfd]">
+                <div className="flex-1 bg-red-50/50 border border-red-100/80 px-4 py-2.5 rounded-full flex items-center gap-2">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                  </span>
+                  <span className="text-[10px] font-bold text-red-650 animate-pulse font-mono uppercase tracking-tight">
+                    Recording: {recordingDuration}s
+                  </span>
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={() => stopVoiceRecording(true)}
+                  className="w-10 h-10 bg-red-50 hover:bg-red-100 text-red-500 rounded-full flex items-center justify-center shadow-sm shrink-0 cursor-pointer transition-all active:scale-95"
+                  title="Discard Recording"
+                >
+                  <Trash2 size={15} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => stopVoiceRecording(false)}
+                  className="w-10 h-10 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full flex items-center justify-center shadow-md shrink-0 cursor-pointer transition-all active:scale-95"
+                  title="Send Voice Note"
+                >
+                  <Send size={15} fill="currentColor" />
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSendChatMessage} className="p-3 border-t border-pink-100 bg-white flex gap-2">
+                <button
+                  type="button"
+                  onClick={startVoiceRecording}
+                  className="w-10 h-10 bg-pink-50 hover:bg-pink-100 text-[#d81b60] rounded-full flex items-center justify-center shadow-sm shrink-0 cursor-pointer transition-all active:scale-95"
+                  title="Record Voice Note"
+                >
+                  <Mic size={15} />
+                </button>
+
+                <input
+                  type="text"
+                  placeholder="Write love message..."
+                  value={chatMessageInput}
+                  onChange={(e) => setChatMessageInput(e.target.value)}
+                  className="flex-1 bg-stone-50 border border-stone-200 px-4 py-3 rounded-full text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-pink-300"
+                />
+
+                <button
+                  type="submit"
+                  disabled={!chatMessageInput.trim()}
+                  className={`w-10 h-10 rounded-full flex items-center justify-center shadow-md shrink-0 cursor-pointer transition-all active:scale-95 ${
+                    chatMessageInput.trim() 
+                      ? "bg-[#d81b60] hover:bg-pink-600 text-white" 
+                      : "bg-stone-50 text-stone-305"
+                  }`}
+                >
+                  <Send size={14} fill="currentColor" />
+                </button>
+              </form>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
