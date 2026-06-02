@@ -183,6 +183,48 @@ export default function App() {
   const [isEditingStatus, setIsEditingStatus] = useState(false);
   const [statusInputStr, setStatusInputStr] = useState("");
 
+  // PWA Install Prompt States
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [canInstall, setCanInstall] = useState(false);
+  const [isAlreadyStandalone, setIsAlreadyStandalone] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      // Prevent browser default UI bar
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setCanInstall(true);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+
+    if (window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone) {
+      setIsAlreadyStandalone(true);
+    }
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) {
+      setShowNotification("Use Chrome/Safari to install to your home screen! 📲");
+      setTimeout(() => setShowNotification(null), 3500);
+      return;
+    }
+    deferredPrompt.prompt();
+    try {
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === "accepted") {
+        setCanInstall(false);
+      }
+    } catch (err) {
+      console.error("Installation prompt interaction failed:", err);
+    }
+    setDeferredPrompt(null);
+  };
+
   // Heart animation tracker
   const [hearts, setHearts] = useState<{ id: number; left: number; delay: number; scale: number }[]>([]);
 
@@ -1677,6 +1719,48 @@ export default function App() {
                    )}
                  </div>
                )}
+            </div>
+
+            {/* PWA Phone Installation Card */}
+            <div className="glass-card bg-white p-5 rounded-[2rem] border-pink-100/50 shadow-sm space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-pink-100 shadow-sm bg-[#fffcfd]">
+                  <img
+                    src="/calculator_manifest_icon.png"
+                    alt="Calculator Icon"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div>
+                  <h3 className="font-bold text-pink-850 text-sm leading-none mb-1">Install App 📱</h3>
+                  <p className="text-[10px] font-bold text-pink-500 uppercase tracking-wider">Save with Calculator Icon & Name</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-stone-500 leading-relaxed font-medium">
+                Keep your romantic signals private! Install Aayat Signal onto your phone's home-screen. It will disguisedly show up with a real-looking <strong className="text-rose-600 font-bold">Calculator</strong> name and icon.
+              </p>
+
+              {isAlreadyStandalone ? (
+                <div className="bg-emerald-50 text-emerald-700 text-xs font-bold py-2.5 px-4 rounded-xl text-center border border-emerald-100">
+                  🎉 Running as installed App on your home screen!
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  <button
+                    onClick={handleInstallApp}
+                    className="w-full py-3 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-700 hover:to-rose-600 text-white font-bold rounded-xl text-xs uppercase shadow-md duration-150 cursor-pointer text-center"
+                  >
+                    Install on this Device
+                  </button>
+                  
+                  <div className="bg-rose-50/50 rounded-2xl p-3 border border-pink-100/50 text-[10px] text-stone-500 space-y-1">
+                    <p className="font-bold text-pink-700 uppercase tracking-widest text-[9px]">Manual Installation Guide:</p>
+                    <p>• <strong className="text-stone-700">iOS Safari:</strong> Tap the Share button <strong className="text-stone-700 font-semibold">"Share" 📤</strong> at the bottom of the page, scroll down, and select <strong className="text-[#d81b60] font-semibold">"Add to Home Screen" ➕</strong>.</p>
+                    <p>• <strong className="text-stone-700">Chrome / Android:</strong> Tap the three-dot menu button in the browser corner and select <strong className="text-[#d81b60] font-semibold">"Install App"</strong> or <strong className="text-[#d81b60] font-semibold">"Add to Home screen"</strong>.</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Ibtihaj Biography Information Card Card */}
